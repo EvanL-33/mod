@@ -5,6 +5,7 @@ on:
       - dma-studio-0.17-build
     paths:
       - "dma-studio/*.zip"
+      - ".github/workflows/aventura-dma-studio-017.yml"
   workflow_dispatch:
 
 permissions:
@@ -38,6 +39,24 @@ jobs:
           $project = Join-Path $target '7 days to die dma/Loader/7DTD-Loader.csproj'
           if (-not (Test-Path -LiteralPath $project)) { throw "Projet WPF absent du ZIP." }
           "AVENTURA_ROOT=$target" >> $env:GITHUB_ENV
+
+      - name: Corriger le nom de variable de la progression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = Join-Path $env:AVENTURA_ROOT '7 days to die dma/LiveEntityReader.PlayerStats.cs'
+          $source = [System.IO.File]::ReadAllText($path)
+          $pairs = @(
+            @('byte[] data = ReadObject(progression, progressionStatClass, context.Domain);', 'byte[] progressionData = ReadObject(progression, progressionStatClass, context.Domain);'),
+            @('BitConverter.ToUInt64(data, ownerField.Offset)', 'BitConverter.ToUInt64(progressionData, ownerField.Offset)'),
+            @('BitConverter.ToInt32(data, levelField.Offset)', 'BitConverter.ToInt32(progressionData, levelField.Offset)'),
+            @('BitConverter.ToInt32(data, pointsField.Offset)', 'BitConverter.ToInt32(progressionData, pointsField.Offset)')
+          )
+          foreach ($pair in $pairs) {
+            if (-not $source.Contains($pair[0])) { throw "Recherche de correction introuvable: $($pair[0])" }
+            $source = $source.Replace($pair[0], $pair[1])
+          }
+          [System.IO.File]::WriteAllText($path, $source)
 
       - name: Tests services
         shell: pwsh

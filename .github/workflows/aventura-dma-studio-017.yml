@@ -94,6 +94,22 @@ jobs:
           $source = $source.Replace($anchor, $method + [Environment]::NewLine + $anchor)
           [System.IO.File]::WriteAllText($path, $source)
 
+      - name: Corriger l'import du radar PvP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:AVENTURA_ROOT '7 days to die dma/Loader'
+          $path = Join-Path $root 'UI/RadarControl.cs'
+          $source = [System.IO.File]::ReadAllText($path)
+          $old = 'using SevenDaysLoader.Services;'
+          if (-not $source.Contains($old)) { throw 'Import radar de reference introuvable.' }
+          $source = $source.Replace($old, 'using SevenDaysEsp;' + [Environment]::NewLine + $old)
+          [System.IO.File]::WriteAllText($path, $source)
+          $core = Join-Path $root 'Core/PvpSenseMath.cs'
+          $coreSource = [System.IO.File]::ReadAllText($core)
+          if (-not $coreSource.StartsWith('using System;')) { throw 'Mathematiques PvP inattendues.' }
+          [System.IO.File]::WriteAllText($core, '#nullable enable' + [Environment]::NewLine + $coreSource)
+
       - name: Tests services
         shell: pwsh
         run: |

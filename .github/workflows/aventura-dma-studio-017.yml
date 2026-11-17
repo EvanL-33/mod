@@ -82,6 +82,18 @@ jobs:
             [System.IO.File]::WriteAllText($item.File, $source)
           }
 
+      - name: Completer le simulateur de statistiques du controleur
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = Join-Path $env:AVENTURA_ROOT '7 days to die dma/Loader/Tests/Controller/Fakes.cs'
+          $source = [System.IO.File]::ReadAllText($path)
+          $anchor = '        public void UpdateReadOptions(LiveReadOptions _) { }'
+          $method = '        public Task SendPlayerDmaStatAsync(PlayerDmaStatRequest request, CancellationToken cancellationToken = default) { cancellationToken.ThrowIfCancellationRequested(); ObjectDisposedException.ThrowIf(Disposed, this); PlayerDmaStatPolicy.Validate(request); return Task.CompletedTask; }'
+          if (-not $source.Contains($anchor)) { throw 'Point de correction du simulateur absent.' }
+          $source = $source.Replace($anchor, $method + [Environment]::NewLine + $anchor)
+          [System.IO.File]::WriteAllText($path, $source)
+
       - name: Tests services
         shell: pwsh
         run: |

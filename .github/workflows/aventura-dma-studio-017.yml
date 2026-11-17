@@ -58,6 +58,30 @@ jobs:
           }
           [System.IO.File]::WriteAllText($path, $source)
 
+      - name: Compatibilite certificat TLS Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:AVENTURA_ROOT '7 days to die dma/Loader'
+          $cases = @(
+            @{
+              File = Join-Path $root 'Services/NetworkLink.cs'
+              Old = 'certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddDays(7));'
+              New = 'using (var generated = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddDays(7))) { certificate = X509CertificateLoader.LoadPkcs12(generated.Export(X509ContentType.Pkcs12), null, X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.Exportable); }'
+            },
+            @{
+              File = Join-Path $root 'Tests/ServiceTests.cs'
+              Old = 'using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1));'
+              New = 'using var generatedCertificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1)); using var certificate = X509CertificateLoader.LoadPkcs12(generatedCertificate.Export(X509ContentType.Pkcs12), null, X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.Exportable);'
+            }
+          )
+          foreach ($item in $cases) {
+            $source = [System.IO.File]::ReadAllText($item.File)
+            if (-not $source.Contains($item.Old)) { throw "Certificat source introuvable dans $($item.File)" }
+            $source = $source.Replace($item.Old, $item.New)
+            [System.IO.File]::WriteAllText($item.File, $source)
+          }
+
       - name: Tests services
         shell: pwsh
         run: |

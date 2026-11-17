@@ -1,0 +1,92 @@
+name: Aventura DMA Studio 0.17 - Windows x64
+on:
+  push:
+    branches:
+      - dma-studio-0.17-build
+    paths:
+      - "dma-studio/*.zip"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Tests et compilation Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Recuperer les fichiers
+        uses: actions/checkout@v4
+
+      - name: Installer .NET SDK 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Decompresser les sources
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = Join-Path $env:GITHUB_WORKSPACE 'dma-studio/AVENTURA_DMA_STUDIO_0.17_CONSTRUIRE_EXE_WINDOWS.zip'
+          if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) {
+            throw "Archive absente : $archive. Deposer le ZIP du constructeur dans dma-studio/ sur cette branche."
+          }
+          $target = Join-Path $env:RUNNER_TEMP 'aventura-sources'
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          Expand-Archive -LiteralPath $archive -DestinationPath $target -Force
+          $project = Join-Path $target '7 days to die dma/Loader/7DTD-Loader.csproj'
+          if (-not (Test-Path -LiteralPath $project)) { throw "Projet WPF absent du ZIP." }
+          "AVENTURA_ROOT=$target" >> $env:GITHUB_ENV
+
+      - name: Tests services
+        shell: pwsh
+        run: |
+          dotnet run --project "$env:AVENTURA_ROOT/7 days to die dma/Loader/Tests/ServiceTests.csproj" -c Release
+          if ($LASTEXITCODE -ne 0) { throw "Tests services en echec." }
+
+      - name: Tests controleur
+        shell: pwsh
+        run: |
+          dotnet run --project "$env:AVENTURA_ROOT/7 days to die dma/Loader/Tests/Controller/ControllerTests.csproj" -c Release
+          if ($LASTEXITCODE -ne 0) { throw "Tests controleur en echec." }
+
+      - name: Tests transport DMA
+        shell: pwsh
+        run: |
+          dotnet run --project "$env:AVENTURA_ROOT/7 days to die dma/Loader/Tests/ControlBridge/ControlBridgeTests.csproj" -c Release
+          if ($LASTEXITCODE -ne 0) { throw "Tests transport en echec." }
+
+      - name: Publier le loader autonome
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $project = "$env:AVENTURA_ROOT/7 days to die dma/Loader/7DTD-Loader.csproj"
+          $output = Join-Path $env:RUNNER_TEMP 'Aventura-DMA-Studio-0.17-win-x64'
+          dotnet publish "$project" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$output"
+          if ($LASTEXITCODE -ne 0) { throw "Compilation Windows en echec." }
+          $exe = Join-Path $output '7DTD-Loader.exe'
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "7DTD-Loader.exe absent." }
+          if ((Get-Item -LiteralPath $exe).Length -lt 100000) { throw "Executable anormalement petit." }
+          $stream = [System.IO.File]::OpenRead($exe)
+          try {
+            $r = [System.IO.BinaryReader]::new($stream)
+            if ($r.ReadUInt16() -ne 0x5A4D) { throw "Signature MZ incorrecte." }
+            $stream.Position = 0x3C
+            $offset = $r.ReadInt32()
+            if ($offset -lt 64 -or $offset -gt 4096) { throw "En-tete PE absent." }
+            $stream.Position = $offset
+            if ($r.ReadUInt32() -ne 0x00004550) { throw "Signature PE incorrecte." }
+            if ($r.ReadUInt16() -ne 0x8664) { throw "Architecture x64 non confirmee." }
+          } finally { $stream.Dispose() }
+          $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
+          "7DTD-Loader.exe SHA256 $hash" | Set-Content -LiteralPath (Join-Path $output 'SHA256-7DTD-Loader.txt')
+          "OUTPUT_PATH=$output" >> $env:GITHUB_ENV
+
+      - name: Publier le ZIP executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aventura-DMA-Studio-0.17-Windows-x64
+          path: ${{ env.OUTPUT_PATH }}
+          if-no-files-found: error
+          retention-days: 14
